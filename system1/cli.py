@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """
-System One & Third-Person Audit (TPA) Unified CLI
-Commands:
-  tpa status
-  tpa test
-  tpa audit --stage 1|2 --task "<task>" [--work "<current_work>"]
-  tpa step --task "<task>" --step <N> --total <TOTAL> [--work "<current_work>"]
-  tpa reset
+System One & Third-Person Audit (TPA) Master CLI
+Author: Saifullah Shafin
+Usage:
+  system1 status                                  # Check active provider & sessions
+  system1 test                                    # Run sub-100ms decision test
+  system1 route "<task_description>"              # Route task to subsystem & risk tier
+  system1 audit-code "<diff_or_file>"             # Audit code diff for security defects
+  system1 video-eval "<transcript_or_file>"       # Evaluate content signal-to-noise
+  system1 tpa audit --stage 1|2 --task "<task>"   # Run Third-Person Audit
+  system1 tpa step --task "<task>" --step <N>     # Progress step with watermark trigger
+  system1 mcp                                     # Start Model Context Protocol server
+  system1 reset                                   # Reset session ledger
 """
 
 import sys
@@ -16,17 +21,26 @@ import argparse
 
 from .bridge import evaluate_state, ChoiceQuestion, ScoreQuestion, NoulQuestion, get_client_config
 from .tpa import tpa_step, run_tpa_audit, format_tpa_verdict_card, TPASessionLedger
+from .security import audit_code
+from .router import route_task
+from .evaluator import evaluate_video_transcript
+from .mcp_server import run_stdio_server
 
 
 def main():
     if len(sys.argv) < 2:
-        print("System One: Third-Person Audit (TPA) Engine")
-        print("Usage:")
-        print("  tpa status                                            # Check active sessions & API provider")
-        print("  tpa test                                              # Run live sub-100ms decision test")
-        print("  tpa audit --stage 1|2 --task \"<task>\"                # Run on-demand 40% or 60% audit")
-        print("  tpa step --task \"<task>\" --step <N> --total <TOTAL>   # Progress step (triggers at 40% & 60%)")
-        print("  tpa reset                                             # Reset local session ledger")
+        print("System One: Master Deterministic Decision Architecture & Third-Person Audit (TPA)")
+        print("Lead System Architect: Saifullah Shafin\n")
+        print("Commands:")
+        print("  system1 status                                  # Check active provider & sessions")
+        print("  system1 test                                    # Run live sub-100ms decision test")
+        print("  system1 route \"<task_description>\"              # Route task to subsystem & security risk tier")
+        print("  system1 audit-code \"<diff_or_file>\"             # Audit code diff for security defects & drift")
+        print("  system1 video-eval \"<transcript_or_file>\"       # Evaluate video transcript in 80ms")
+        print("  system1 tpa audit --stage 1|2 --task \"<task>\"   # Run on-demand Third-Person Audit (40% or 60%)")
+        print("  system1 tpa step --task \"<task>\" --step <N>     # Progress step (triggers at 40% & 60%)")
+        print("  system1 mcp                                     # Start Model Context Protocol stdio server")
+        print("  system1 reset                                   # Reset session ledger")
         print("\nEnvironment variables:")
         print("  TYPESAFE_API_KEY      Official TypeSafe API ($5 free credit)")
         print("  OPENROUTER_API_KEY    OpenRouter Decisions fallback")
@@ -68,40 +82,103 @@ def main():
             print(f"Execution Error: {e}")
             sys.exit(1)
 
+    elif cmd == "route":
+        if len(sys.argv) < 3:
+            print("Usage: system1 route \"<task_description>\"")
+            sys.exit(1)
+        task_desc = sys.argv[2]
+        res = route_task(task_desc)
+        print("System One Task Routing Result:")
+        print(f"  Target Subsystem:         {res['intent']} (Conf: {res['confidence']*100:.1f}%)")
+        print(f"  Security Risk Tier:       {res['risk_tier']:.2f} / 2.0")
+        print(f"  Requires Human Approval:  {res['requires_human_approval']}")
+
+    elif cmd == "audit-code":
+        if len(sys.argv) < 3:
+            print("Usage: system1 audit-code \"<diff_or_file>\"")
+            sys.exit(1)
+        target = sys.argv[2]
+        content = target
+        if os.path.exists(target):
+            with open(target, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        res = audit_code(content)
+        print("System One Code Safety Audit Result:")
+        print(f"  Status:                   {res['status']}")
+        print(f"  Risk Category:            {res['risk_category']} (Conf: {res['confidence']*100:.1f}%)")
+        print(f"  Risk Tier Score:          {res['risk_tier_score']:.2f} / 2.0")
+        print(f"  Blocked:                  {res['is_blocked']}")
+        print(f"  Requires Human Approval:  {res['requires_human_approval']}")
+
+    elif cmd == "video-eval":
+        if len(sys.argv) < 3:
+            print("Usage: system1 video-eval \"<transcript_or_file>\"")
+            sys.exit(1)
+        target = sys.argv[2]
+        content = target
+        if os.path.exists(target):
+            with open(target, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        res = evaluate_video_transcript(content)
+        print("System One Content Signal Evaluation Result:")
+        print(f"  Signal-to-Noise Score:    {res['signal_score']:.2f} / 2.0 (High Signal: {res['is_high_signal']})")
+        print(f"  Content Pillar:           {res['content_pillar']}")
+        print(f"  Monetizable Opportunity:  {res['is_monetizable']}")
+
+    elif cmd in ("tpa", "hmo"):
+        sub_args = sys.argv[2:]
+        if not sub_args or sub_args[0] == "audit":
+            parser = argparse.ArgumentParser(prog="system1 tpa audit")
+            parser.add_argument("--stage", type=int, default=1, choices=[1, 2], help="1=Mid-flight bias (40%), 2=Convergence (60%)")
+            parser.add_argument("--task", type=str, required=True, help="Task description")
+            parser.add_argument("--work", type=str, default="Current state", help="Summary of work or tests done")
+            parser.add_argument("--directives", type=str, default="", help="Human directives or assumptions")
+            parsed = parser.parse_args(sub_args[1:] if sub_args and sub_args[0] == "audit" else sub_args)
+
+            verdict = run_tpa_audit(parsed.task, stage=parsed.stage, current_work=parsed.work, human_directives=parsed.directives)
+            card = format_tpa_verdict_card(verdict, parsed.task, 45.0 if parsed.stage == 1 else 65.0)
+            print(card)
+        elif sub_args[0] == "step":
+            parser = argparse.ArgumentParser(prog="system1 tpa step")
+            parser.add_argument("--task", type=str, required=True, help="Task description")
+            parser.add_argument("--step", type=int, required=True, help="Current step number")
+            parser.add_argument("--total", type=int, default=10, help="Total planned steps")
+            parser.add_argument("--work", type=str, default="", help="Summary of work done in this step")
+            parsed = parser.parse_args(sub_args[1:])
+
+            res = tpa_step(parsed.task, current_step=parsed.step, total_steps=parsed.total, step_summary=parsed.work)
+            if res["triggered"]:
+                print(res["verdict_card"])
+            else:
+                print(f"TPA Step {parsed.step}/{parsed.total} recorded ({res['progress_pct']:.1f}%). Watermark not triggered.")
+        elif sub_args[0] == "reset":
+            all_data = TPASessionLedger.load_all()
+            for sid in list(all_data.keys()):
+                TPASessionLedger.reset_session(sid)
+            print("All TPA session ledgers have been reset.")
+        else:
+            print(f"Unknown TPA subcommand: {sub_args[0]}")
+
+    elif cmd == "mcp":
+        run_stdio_server()
+
     elif cmd == "reset":
         all_data = TPASessionLedger.load_all()
         for sid in list(all_data.keys()):
             TPASessionLedger.reset_session(sid)
         print("All TPA session ledgers have been reset.")
 
+    # Direct tpa alias fallback
     elif cmd == "audit":
-        parser = argparse.ArgumentParser(prog="tpa audit")
-        parser.add_argument("--stage", type=int, default=1, choices=[1, 2], help="1=Mid-flight bias (40%), 2=Convergence (60%)")
-        parser.add_argument("--task", type=str, required=True, help="Task description")
-        parser.add_argument("--work", type=str, default="Current state", help="Summary of work or tests done")
-        parser.add_argument("--directives", type=str, default="", help="Human directives or assumptions")
-        args = parser.parse_args(sys.argv[2:])
-
-        verdict = run_tpa_audit(args.task, stage=args.stage, current_work=args.work, human_directives=args.directives)
-        card = format_tpa_verdict_card(verdict, args.task, 45.0 if args.stage == 1 else 65.0)
-        print(card)
+        sys.argv = [sys.argv[0], "tpa", "audit"] + sys.argv[2:]
+        main()
 
     elif cmd == "step":
-        parser = argparse.ArgumentParser(prog="tpa step")
-        parser.add_argument("--task", type=str, required=True, help="Task description")
-        parser.add_argument("--step", type=int, required=True, help="Current step number")
-        parser.add_argument("--total", type=int, default=10, help="Total planned steps")
-        parser.add_argument("--work", type=str, default="", help="Summary of work done in this step")
-        args = parser.parse_args(sys.argv[2:])
-
-        res = tpa_step(args.task, current_step=args.step, total_steps=args.total, step_summary=args.work)
-        if res["triggered"]:
-            print(res["verdict_card"])
-        else:
-            print(f"TPA Step {args.step}/{args.total} recorded ({res['progress_pct']:.1f}%). Watermark not triggered.")
+        sys.argv = [sys.argv[0], "tpa", "step"] + sys.argv[2:]
+        main()
 
     else:
-        print(f"Unknown command: {cmd}. Run 'tpa' for usage.")
+        print(f"Unknown command: {cmd}. Run 'system1' for usage.")
         sys.exit(1)
 
 

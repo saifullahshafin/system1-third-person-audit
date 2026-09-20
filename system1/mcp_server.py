@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-System One & Third-Person Audit (TPA) MCP Server
+System One & Third-Person Audit (TPA) Master MCP Server
 Standard JSON-RPC 2.0 Model Context Protocol stdio server.
 Compatible with: Claude Code, OpenCode, Antigravity, Cursor, and Windsurf.
 """
@@ -11,6 +11,9 @@ import os
 
 from .bridge import evaluate_state, ChoiceQuestion, ScoreQuestion, NoulQuestion
 from .tpa import tpa_step, run_tpa_audit, format_tpa_verdict_card
+from .security import audit_code, audit_command
+from .router import route_task
+from .evaluator import evaluate_video_transcript
 
 
 def create_tools_manifest():
@@ -84,14 +87,38 @@ def create_tools_manifest():
             }
         },
         {
+            "name": "system1_audit_code",
+            "description": "Pre-commit git diff and code safety auditor. Detects hardcoded secrets, breaking API changes, unhandled exceptions, and architectural drift.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "diff": { "type": "string", "description": "Git diff or code snippet to audit." },
+                    "context": { "type": "string", "description": "Optional architectural context." }
+                },
+                "required": ["diff"]
+            }
+        },
+        {
             "name": "system1_task_route",
-            "description": "Evaluates an autonomous task for subsystem intent, security risk tier, and human approval necessity in under 100ms.",
+            "description": "Autonomous task router. Evaluates task directives for subsystem intent, security risk tier, and human approval necessity in sub-100ms.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "task_description": { "type": "string", "description": "Description of the task to be executed." }
                 },
                 "required": ["task_description"]
+            }
+        },
+        {
+            "name": "system1_video_eval",
+            "description": "Evaluates video transcripts or copy for signal-to-noise ratio, monetization opportunities, and content pillars in 80ms.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "transcript": { "type": "string", "description": "Transcript text to evaluate." },
+                    "title": { "type": "string", "description": "Optional video or article title." }
+                },
+                "required": ["transcript"]
             }
         }
     ]
@@ -158,32 +185,21 @@ def handle_tool_call(tool_name, arguments):
         }
         return { "content": [{ "type": "text", "text": json.dumps(output_payload, indent=2) }] }
 
+    elif tool_name == "system1_audit_code":
+        diff = arguments.get("diff", "")
+        context = arguments.get("context", "")
+        res = audit_code(diff, context)
+        return { "content": [{ "type": "text", "text": json.dumps(res, indent=2) }] }
+
     elif tool_name == "system1_task_route":
         task = arguments.get("task_description", "")
-        state = { "task": task }
-        questions = {
-            "intent": ChoiceQuestion(
-                "Which subsystem is required to execute `task`?",
-                {
-                    "code_engineering": "Requires code analysis, editing, git commit, or build execution",
-                    "research_and_search": "Requires web search, documentation lookup, or model comparison",
-                    "system_ops": "Requires terminal commands, process management, or server configuration",
-                    "direct_answer": "Factual question answerable with existing context"
-                }
-            ),
-            "security_tier": ScoreQuestion(
-                "What is the security risk of executing `task`?",
-                [
-                    "Read-only safe operation",
-                    "Non-destructive state change or local file creation",
-                    "Destructive command (file deletion, process termination, spending money, or public posting)"
-                ]
-            ),
-            "requires_human_approval": NoulQuestion(
-                "Should this task halt and request explicit confirmation before running?"
-            )
-        }
-        res = evaluate_state(state, questions)
+        res = route_task(task)
+        return { "content": [{ "type": "text", "text": json.dumps(res, indent=2) }] }
+
+    elif tool_name == "system1_video_eval":
+        transcript = arguments.get("transcript", "")
+        title = arguments.get("title", "")
+        res = evaluate_video_transcript(transcript, title)
         return { "content": [{ "type": "text", "text": json.dumps(res, indent=2) }] }
 
     else:
